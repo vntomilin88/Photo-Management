@@ -39,30 +39,34 @@ appendixf = '/home/vntom/Purgatory/Appendix/'
 
 camera_set = set()
 
-def datetime_converter(file):
-    DT = piexif.load(f'{chaosf}{file}')['0th'][306] #[0th]306 - exif information when the photo was taken, [Exif]36867 - original time taken
-    DTF = datetime.datetime(int(DT[:4]), int(DT[5:7]), int(DT[8:10]), int(DT[11:13]), int(DT[14:16]), int(DT[17:19]), 00)
-    return(DTF)
+def datetime_converter(DT,values):
+    originaltime = datetime.datetime(int(DT[:4]), int(DT[5:7]), int(DT[8:10]), int(DT[11:13]), int(DT[14:16]), int(DT[17:19]), 00)
+    correctedtime = originaltime+datetime.timedelta(seconds=values[1])
+    timename = correctedtime.strftime('%Y%m%d_%H%M%S')
+    return(timename)
 
 def determinator():
     #Determining all the camera models
     for file in sorted(os.listdir(f'{chaosf}')):
         extension = os.path.splitext(file)[1].lower() #get the file extension
         if extension in ['.jpeg', '.jpg', '.cr2']:
-            camera_set.add(piexif.load(f'{chaosf}{file}')['0th'][272].decode().rstrip('\x00'))
-    
+            info = piexif.load(f'{chaosf}{file}')
+            camera_set.add(info['0th'][272].decode().rstrip('\x00'))
+        else:
+            VT = ffmpeg.probe(f'{chaosf}{file}')['streams'][0]['tags']['creation_time']
+
     #determining the time differential, correct_sample is the file from your camera which is the
-    #date you center the rest of the photos from, wrong_sample is the media that is taken at
+    #date you normalize the rest of the photos to, wrong_sample is the media that is taken at
     #approximately the same time, tdelta calculated this way needs further adjustment due to
     #calendar year differences
     
-    cor_time = datetime_converter('20150214_120552.jpg') #image with the right time
-    wrong_time = datetime_converter('GOPR0059.JPG') #image with distorted time
+    cor_time = datetime_converter(DT=piexif.load(f'{chaosf}20150214_120552.jpg')['0th'][306],values=[0,0]) #image with the right time 
+    wrong_time = datetime_converter(DT=piexif.load(f'{chaosf}GOPR0059.JPG')['0th'][306],values=[0,0]) #image with distorted time
     tdelta = (cor_time - wrong_time).total_seconds()
     
-    print(camera_set)
-    print(tdelta)
-    print(407*24*3600+3600*14+5*60+14)
+    # print(camera_set)
+    # print(tdelta)
+    # print(407*24*3600+3600*14+5*60+14)
 
 # determinator()
 
@@ -72,53 +76,65 @@ def determinator():
 #time differential (tdelta) should be determined from taking two photos taken around the same
 #time and substracting the values of time taken
 CameraDict = {'HERO4 Black': ['EgorsGoPro', 407*24*3600+3600*14+5*60+14, '_EG'], \
-              'Lumia 1020':  ['EgorsPhone', 0, '_EP']}
+              'Lumia 1020':  ['EgorsPhone', 0, '_EP'], \
+              'GT-I9300':    ['DefaultPhone', 0, ''], \
+              'Unknown':     ['UnknownSource', 0, '_U']}
 
 #Had to make a second dictionary since video files do not record the camera on which it was recorded
 #This dictionary uses the 1st letter of the video file to recognize the camera, since the cameras
 #that are weird, do not name videos in a date format.
 VideoDict = {'G': ['EgorGoProVideo', 407*24*3600+3600*14+5*60+14, '_EG'], \
-             'W': ['EgorPhoneVideo', 0, '_EP']}
+             'W': ['EgorPhoneVideo', 0, '_EP'], \
+             '2': ['DefaultVideo', 0, ''], \
+             'U': ['UnknownSource', 0, '_U']}
 
-def photo_renamer(file, extension):
-    img_exif = piexif.load(f'{chaosf}{file}')['0th'] #load image exif
-    camera_model = img_exif[272].decode().strip().rstrip('\x00')
+def photo_renamer(img_exif, file, extension):
+    camera_model = img_exif['0th'][272].decode().strip().rstrip('\x00')
     
     if camera_model in CameraDict.keys():
         camera_values = CameraDict[camera_model]
         try:
-            DT = img_exif[306]
+            DT = img_exif['0th'][306] #[0th]306 - exif information when the photo was taken
         except:
-            DT = piexif.load(f'{chaosf}{file}')['Exif'][36867]
-        originaltime = datetime.datetime(int(DT[:4]), int(DT[5:7]), int(DT[8:10]), int(DT[11:13]), int(DT[14:16]), int(DT[17:19]), 00)
-        correctedtime = originaltime+datetime.timedelta(seconds=camera_values[1])
-        imgtimename = correctedtime.strftime('%Y%m%d_%H%M%S')
-        os.system(f'cp {chaosf}{file} {orderf}{imgtimename}{camera_values[2]}{extension}')
+            DT = img_exif['Exif'][36867] #[Exif]36867 - original time taken when there is no information on date taken
+        else:
+            os.system(f'cp {chaosf}{file} {orderf}(NO_EXIF_DATE_){file}')
     else:
-        os.system(f'cp {chaosf}{file} {orderf}{file}')
+        camera_values = CameraDict['Unknown']
+    
+    imgtimename = datetime_converter(DT,camera_values)
+    os.system(f'cp {chaosf}{file} {orderf}{imgtimename}{camera_values[2]}{extension}')
+    
 
-def video_renamer(file, extension):
+def video_renamer(VT, file, extension):
     if file[0] in VideoDict.keys():
         video_values = VideoDict[file[0]]
-        VT = ffmpeg.probe(f'{chaosf}{file}')['streams'][0]['tags']['creation_time']
-        originaltime = datetime.datetime(int(VT[:4]), int(VT[5:7]), int(VT[8:10]), int(VT[11:13]), int(VT[14:16]), int(VT[17:19]), 00)
-        correctedtime = originaltime+datetime.timedelta(seconds=video_values[1])
-        vidtimename = correctedtime.strftime('%Y%m%d_%H%M%S')
-        os.system(f'cp {chaosf}{file} {orderf}{vidtimename}{video_values[2]}{extension}')
     else:
-        os.system(f'cp {chaosf}{file} {orderf}{file}')
+        video_values = VideoDict['U']
+    
+    vidtimename = datetime_converter(VT,video_values)
+    os.system(f'cp {chaosf}{file} {orderf}{vidtimename}{video_values[2]}{extension}')
 
 def main():
     for file in os.listdir(f'{chaosf}'): #at this stage we complete renaming
         extension = os.path.splitext(file)[1].lower() #get the file extension
+        # print(file)
         if extension in ['.mp4', '.mov']:
-            video_renamer(file, extension)
+            try:
+                VT = ffmpeg.probe(f'{chaosf}{file}')['streams'][0]['tags']['creation_time']
+                video_renamer(VT, file, extension)
+            except:
+                os.system(f'cp {chaosf}{file} {orderf}NO_INFO_{file}')
+
         elif extension in ['.jpeg', '.jpg', '.cr2', '.tiff']:
-            print(file)
-            photo_renamer(file, extension)
+            try:
+                img_exif = piexif.load(f'{chaosf}{file}') #load image exif
+                photo_renamer(img_exif, file, extension)
+            except: #if the file has no exif move it to the order folder with a NO_EXIF_ prefix
+                os.system(f'cp {chaosf}{file} {orderf}NO_EXIF_{file}')
         else:
             os.system(f'cp {chaosf}{file} {appendixf}{file}')
 
-# main()
+main()
 
 
