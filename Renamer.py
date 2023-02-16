@@ -64,7 +64,7 @@ def determinator():
     wrong_time = datetime_converter(DT=piexif.load(f'{chaosf}GOPR0059.JPG')['0th'][306],values=[0,0]) #image with distorted time
     tdelta = (cor_time - wrong_time).total_seconds()
     
-    # print(camera_set)
+    print(camera_set)
     # print(tdelta)
     # print(407*24*3600+3600*14+5*60+14)
 
